@@ -416,7 +416,9 @@ def update_task(task_id: int, body: TaskPatch, conn: Conn, actor: Who):
 
     if updates or "tags" in changes:
         with conn:
-            updates["updated_at"] = now()
+            # Reordering isn't an update either: Done is sorted by when tasks were finished.
+            if changes:
+                updates["updated_at"] = now()
             cols = ", ".join(f"{k} = ?" for k in updates)
             conn.execute(f"UPDATE tasks SET {cols} WHERE id = ?", (*updates.values(), task_id))
             if "tags" in changes:

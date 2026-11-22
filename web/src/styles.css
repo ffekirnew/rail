@@ -273,7 +273,7 @@ footer.bottom {
   min-width: 22px; padding: 1px 7px; border-radius: 999px; text-align: center;
   font-size: 12px; font-weight: 600; color: var(--muted); background: var(--panel); border: 1px solid var(--border);
 }
-.column .cards { padding: 2px 8px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 8px; }
+.column .cards { position: relative; padding: 2px 8px 8px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; min-height: 8px; }
 
 .column.collapsed { flex: 0 0 44px; min-width: 44px; align-items: center; gap: 10px; padding: 8px 0 12px; }
 .collapsed-label { writing-mode: vertical-rl; font-weight: 600; font-size: 13.5px; white-space: nowrap; }
@@ -299,6 +299,9 @@ footer.bottom {
 }
 .card:active:not(.lifted) { transform: scale(0.985); }
 .card:hover { border-color: color-mix(in srgb, var(--muted) 45%, var(--border)); }
+.drop-slot { flex: none; min-height: 44px; border: 1.5px dashed var(--accent); border-radius: 10px; background: var(--accent-soft); animation: slot-in 0.16s var(--ease) both; }
+@keyframes slot-in { from { opacity: 0; } }
+.card.away { display: none; }
 .card.placeholder-card { opacity: 0.35; border-style: dashed; box-shadow: none; }
 .card.lifted { box-shadow: var(--lift); cursor: grabbing; transform: rotate(1.2deg) scale(1.02); animation: lift 0.18s var(--ease) backwards; }
 .card-top { display: flex; align-items: flex-start; gap: 8px; }

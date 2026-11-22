@@ -185,9 +185,19 @@ export function App() {
     setCollapsed(next);
   };
 
-  const move = (task: Task, status: Status) => {
-    setTasks(all.map((t) => (t.id === task.id ? { ...t, status, updated_at: new Date().toISOString() } : t)));
-    api.updateTask(task.id, { status }).then(refresh).catch((e) => { onError(e); refresh(); });
+  // A drag changes the card's column, its place in it, or both.
+  const move = (task: Task, status: Status, positions: Record<number, number>) => {
+    const moved = status !== task.status;
+    const stamp = new Date().toISOString();
+    setTasks(all.map((t) => ({
+      ...t,
+      ...(t.id === task.id && moved ? { status, updated_at: stamp } : {}),
+      ...(t.id in positions ? { position: positions[t.id] } : {}),
+    })));
+    const patches = new Map<number, Record<string, unknown>>(Object.entries(positions).map(([id, position]) => [Number(id), { position }]));
+    if (moved) patches.set(task.id, { ...patches.get(task.id), status });
+    Promise.all([...patches].map(([id, patch]) => api.updateTask(id, patch)))
+      .then(refresh).catch((e) => { onError(e); refresh(); });
   };
 
   const newProject = () => setProjectDialog({});

@@ -105,3 +105,9 @@ def test_activity_paginates(client, project):
     page = client.get("/api/activity", params={"limit": 2}).json()
     older = client.get("/api/activity", params={"limit": 2, "before_id": page[-1]["id"]}).json()
     assert [e["task_title"] for e in page + older] == ["4", "3", "2", "1"]
+
+
+def test_reorder_keeps_updated_at(client, project):
+    t = client.post("/api/tasks", json={"project_id": project["id"], "title": "x"}).json()
+    r = client.patch(f"/api/tasks/{t['id']}", json={"position": 0.5}).json()
+    assert r["position"] == 0.5 and r["updated_at"] == t["updated_at"]
