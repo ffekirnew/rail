@@ -1,5 +1,5 @@
 import {
-  CollisionDetection, DndContext, DragEndEvent, DragMoveEvent, DragOverlay, DragStartEvent, PointerSensor, TouchSensor,
+  CollisionDetection, DndContext, DragEndEvent, DragMoveEvent, DragOverlay, DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor,
   pointerWithin, rectIntersection, useDraggable, useDroppable, useSensor, useSensors,
 } from "@dnd-kit/core";
 import { Calendar, ChevronsLeftRight, ChevronsRightLeft, Flag, Plus } from "lucide-react";
@@ -26,6 +26,9 @@ const ordered = (s: Status) => s !== "done";
 type Target = { status: Status; before?: number | null };
 
 const byPosition = (a: Task, b: Task) => a.position - b.position || a.id - b.id;
+
+// Columns open and close mid-drag, so drop zones are measured again as the layout changes.
+const measuring = { droppable: { strategy: MeasuringStrategy.Always } };
 
 // Where a card sits in its list, ignoring any slide in progress (.cards is its offsetParent).
 const layoutMid = (el: HTMLElement) => el.offsetTop + el.offsetHeight / 2;
@@ -226,6 +229,10 @@ export function Board({ tasks, showProject, collapsed, onToggle, onOpen, onMove,
   }, []);
   const [target, setTarget] = useState<Target | null>(null);
   const [slotHeight, setSlotHeight] = useState(0);
+  // Collapsed columns a card has been dragged over open for the rest of the drag,
+  // and close again unless the card lands there.
+  const [peeked, setPeeked] = useState<Set<Status>>(new Set());
+  const isCollapsed = (s: Status) => collapsed.has(s) && !peeked.has(s);
   const active = tasks.find((t) => t.id === activeId);
   const cutoff = inDays(-DONE_DAYS);
   const inColumn = (s: Status) => {
@@ -240,7 +247,7 @@ export function Board({ tasks, showProject, collapsed, onToggle, onOpen, onMove,
     const status = e.over?.id as Status | undefined;
     const rect = e.active.rect.current.translated;
     if (!status) return null;
-    if (!ordered(status) || collapsed.has(status) || !rect) return { status };
+    if (!ordered(status) || isCollapsed(status) || !rect) return { status };
     const y = rect.top + rect.height / 2;
     const list = document.querySelector<HTMLElement>(`[data-column="${status}"] .cards`);
     if (!list) return { status };
@@ -278,30 +285,37 @@ export function Board({ tasks, showProject, collapsed, onToggle, onOpen, onMove,
     const el = document.querySelector<HTMLElement>(`[data-task-id="${e.active.id}"]`);
     setSlotHeight(el?.offsetHeight ?? 0);
   };
+  const endPeek = () => setPeeked(new Set());
   const onDragMove = (e: DragMoveEvent) => {
+    const over = e.over?.id as Status | undefined;
+    if (over && isCollapsed(over)) setPeeked((p) => new Set(p).add(over));
     const t = targetFor(e);
     setTarget((old) => (old?.status === t?.status && old?.before === t?.before ? old : t));
   };
   const onDragEnd = (e: DragEndEvent) => {
     setActiveId(null);
     setTarget(null);
+    endPeek();
     const task = tasks.find((t) => t.id === e.active.id);
     const t = targetFor(e);
     if (!task || !t) return;
+    // A column opened for this drop stays open.
+    if (peeked.has(t.status)) onToggle(t.status);
     const positions = t.before === undefined ? {} : placeAt(task, t.status, t.before);
     if (t.status !== task.status || Object.keys(positions).length) onMove(task, t.status, positions);
   };
   const onDragCancel = () => {
     setActiveId(null);
     setTarget(null);
+    endPeek();
   };
   return (
-    <DndContext sensors={sensors} collisionDetection={collision} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>
+    <DndContext sensors={sensors} collisionDetection={collision} measuring={measuring} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={onDragCancel}>
       <div className={`board ${active ? "dragging" : ""}`}>
         {STATUSES.map((s) => (
           <Column
             key={s} status={s} tasks={inColumn(s)} showProject={showProject}
-            collapsed={collapsed.has(s)} entering={entering} dragging={!!active} dropBefore={target?.status === s ? target.before : undefined}
+            collapsed={isCollapsed(s)} entering={entering} dragging={!!active} dropBefore={target?.status === s ? target.before : undefined}
             slotHeight={slotHeight} away={target?.before !== undefined} onToggle={() => onToggle(s)} onOpen={onOpen} onAdd={() => onAdd(s)}
           />
         ))}
