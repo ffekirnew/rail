@@ -116,11 +116,8 @@ kbd {
 
 /* --- frame ------------------------------------------------------------ */
 
-.app { height: 100%; padding: 12px; }
-.frame {
-  height: 100%; display: flex; flex-direction: column; overflow-y: auto;
-  background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
-}
+.app { height: 100%; }
+.frame { height: 100%; display: flex; flex-direction: column; overflow-y: auto; background: var(--panel); }
 /* without this, a long page squeezes the header, filters and footer to make room */
 .frame > * { flex-shrink: 0; }
 
@@ -189,13 +186,6 @@ header.top { display: flex; align-items: center; gap: 14px; padding: 12px 16px 6
   position: absolute; top: 0; bottom: 0; left: 0; border-radius: 8px; background: var(--column);
   transition: transform 0.32s var(--spring), width 0.32s var(--spring);
 }
-
-.theme-switch { display: flex; gap: 2px; padding: 2px; border-radius: 9px; background: var(--column); }
-.theme-switch button {
-  display: grid; place-items: center; width: 28px; height: 26px; border: 0; border-radius: 7px;
-  background: none; color: var(--muted); cursor: pointer; transition: background 0.2s, color 0.2s, box-shadow 0.2s;
-}
-.theme-switch button.active { background: var(--card); color: var(--accent); box-shadow: var(--shadow); }
 
 /* --- filters row ------------------------------------------------------ */
 
@@ -275,6 +265,31 @@ footer.bottom {
 
 .column.collapsed { flex: 0 0 44px; min-width: 44px; align-items: center; gap: 10px; padding: 8px 0 12px; }
 .collapsed-label { writing-mode: vertical-rl; font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+
+/* Lanes: one row of columns per project. Every row gets the same min-width (set inline),
+   so the flex columns line up from row to row. */
+.board.lanes { display: block; overflow: auto; }
+.lanes-inner { display: flex; flex-direction: column; gap: 10px; }
+.lane-head { position: sticky; left: 0; display: flex; align-items: center; gap: 6px; width: max-content; max-width: 100%; padding: 2px 0 6px; }
+.lane-name {
+  border: 0; background: none; color: var(--text); font: inherit; font-size: 14.5px; font-weight: 600;
+  padding: 2px 6px; border-radius: 6px; cursor: pointer;
+}
+.lane-name:hover { background: var(--hover); color: var(--accent); }
+.lane-stats { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.lane.folded .fold-icon { transform: rotate(-90deg); }
+.lane-row { display: flex; gap: 12px; align-items: stretch; }
+.lane .column { max-height: none; }
+/* Other lanes can't take the card being dragged. */
+.column.off { opacity: 0.45; }
+
+.backlog-drop {
+  position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 15;
+  display: flex; align-items: center; gap: 8px; padding: 12px 28px; border-radius: 12px;
+  border: 1.5px dashed var(--c); background: var(--card); color: var(--muted); font-weight: 500; box-shadow: var(--lift);
+  animation: fade-in 0.15s var(--ease) backwards; transition: background 0.15s, color 0.15s;
+}
+.backlog-drop.over { color: var(--text); background: color-mix(in srgb, var(--c) 14%, var(--card)); border-style: solid; }
 
 .day-divider {
   display: flex; align-items: center; gap: 8px; padding: 2px 6px 0;
@@ -399,6 +414,28 @@ footer.bottom {
 }
 .add-row:hover { background: var(--hover); color: var(--text); }
 
+/* Backlog tab: rows reorder by their grip and have quick actions. */
+.backlog-row {
+  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px;
+  padding: 7px 10px 7px 6px; border-top: 1px solid var(--border); cursor: pointer; position: relative; background: var(--card);
+}
+.backlog-row:hover { background: var(--hover); }
+.backlog-row .grip { display: inline-flex; color: var(--faint); cursor: grab; touch-action: none; padding: 2px; border-radius: 5px; }
+.backlog-row .grip:hover { color: var(--text); background: var(--hover); }
+.backlog-row.placeholder-row { opacity: 0.35; }
+.backlog-row.lifted { box-shadow: var(--lift); border: 1px solid var(--border); border-radius: 10px; cursor: grabbing; grid-template-columns: auto 1fr; }
+.drop-before::before {
+  content: ""; position: absolute; left: 8px; right: 8px; top: -2px; height: 3px; border-radius: 2px; background: var(--accent);
+}
+.backlog-end { position: relative; height: 10px; list-style: none; }
+.backlog-actions { display: flex; align-items: center; gap: 6px; }
+.prio-select {
+  font: inherit; font-size: 12px; color: var(--muted); background: var(--input); border: 1px solid var(--border);
+  border-radius: 7px; padding: 3px 4px; cursor: pointer;
+}
+.backlog-actions .btn.small { display: inline-flex; align-items: center; gap: 4px; }
+.filters .backlog-toggle { margin-left: auto; }
+
 /* --- task modal ------------------------------------------------------- */
 
 .backdrop {
@@ -471,11 +508,11 @@ footer.bottom {
 
 /* --- motion ----------------------------------------------------------- */
 
-.btn, .quick, .icon-btn, .tabs button, .theme-switch button, .add-card, .add-row {
+.btn, .quick, .icon-btn, .tabs button, .add-card, .add-row {
   transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.12s var(--ease);
 }
 .btn:active:not(:disabled), .quick:active, .icon-btn:active:not(:disabled), .tabs button:active,
-.theme-switch button:active, .add-card:active, .add-row:active { transform: scale(0.95); }
+.add-card:active, .add-row:active { transform: scale(0.95); }
 
 main { animation: view-in 0.3s var(--ease) backwards; }
 .backdrop { animation: fade-in 0.2s ease-out backwards; }
@@ -505,8 +542,6 @@ main { animation: view-in 0.3s var(--ease) backwards; }
 /* --- narrow screens --------------------------------------------------- */
 
 @media (max-width: 700px) {
-  .app { padding: 0; }
-  .frame { border-radius: 0; border: 0; }
   header.top { padding: 10px 12px 4px; gap: 8px; }
   .brand h1 { display: none; }
   .tabs button { padding: 5px 9px; }
@@ -522,6 +557,10 @@ main { animation: view-in 0.3s var(--ease) backwards; }
   .activity, .list-view { padding: 0 12px 20px; }
   .task-row { grid-template-columns: 1fr auto; padding: 8px 12px; }
   .task-row .status-pill { grid-column: 1 / -1; }
+  .backlog-row { grid-template-columns: auto 1fr auto; }
+  .backlog-row .row-meta { display: none; }
+  .lane-row .column { flex: 0 0 calc(100vw - 48px); }
+  .lane-row .column.collapsed { flex-basis: 40px; min-width: 40px; }
   footer.bottom { padding: 8px 12px; padding-bottom: calc(8px + env(safe-area-inset-bottom)); }
   footer.bottom .btn.small, .last-change { display: none; }
   .backdrop { padding: 0; }

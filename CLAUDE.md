@@ -8,7 +8,7 @@ A task board for one person and their AI agents. The user works in the web UI; a
 - `src/rail/db.py`: SQLite. One connection per request, WAL, `foreign_keys` on. Schema upgrades are the append-only `MIGRATIONS` list, applied by `PRAGMA user_version` on startup. Add a new entry; never edit an old one.
 - `src/rail/cli.py`: the `rail` CLI. **Standard library only** (`dependencies = []` in `pyproject.toml`), so a bare `uv tool install` works on an agent-only machine. Don't add imports from the `server`/`dev` extras.
 - `src/rail/__init__.py`: `STATUSES` (`backlog todo in_progress blocked done cancelled`), `PRIORITIES` (`low medium high urgent`), and `env()`, which reads `RAIL_<name>` then `FFLOOM_<name>`.
-- `web/`: React 19 + Vite + TypeScript UI (kanban board with collapsible columns, task modal, projects view, activity feed). `@dnd-kit` for drag and drop, `marked` for Markdown, `lucide-react` icons. Dependencies are pinned to exact versions.
+- `web/`: React 19 + Vite + TypeScript UI (kanban board with one lane per project and per-lane collapsible columns, Backlog tab, task modal, projects view, activity feed; the board hides the Backlog column unless "Show backlog" is on). `@dnd-kit` for drag and drop, `marked` for Markdown, `lucide-react` icons. Dependencies are pinned to exact versions.
 - `skill/rail/`, `skill/rail-plan/`: Claude Code skills, symlinked into `~/.claude/skills/`, so edits here go live for every agent at once.
 - `tests/`: pytest (`test_api.py`, `test_cli.py`, `test_rename.py`).
 
@@ -26,12 +26,19 @@ A task board for one person and their AI agents. The user works in the web UI; a
 ```bash
 uv venv && uv pip install -e '.[dev]'
 .venv/bin/pytest
-RAIL_DB=dev.db .venv/bin/uvicorn rail.server:app --port 8020 --reload
-cd web && npm install && npm run dev      # proxies /api to :8020
+RAIL_DB=dev.db .venv/bin/uvicorn rail.server:app --port 8021 --reload
+cd web && npm install && RAIL_API=http://127.0.0.1:8021 npx vite --port 5180   # RAIL_API defaults to :8020
 cd web && npm run build                   # tsc --noEmit && vite build
 ```
 
-Don't point a dev server at the production DB (`~/home-server/rail/rail.db`), and don't run the dev server on 8020 while the production container holds that port; pick another port and set `server.proxy` to match.
+Don't point a dev server at the production DB (`~/home-server/rail/rail.db`), and don't run the dev server on 8020: the production container holds that port. `dev.db` is gitignored; seed it through the API if it's empty.
+
+### Workflow
+
+1. Branch off `main` for each feature.
+2. Run the API on 8021 and the UI on `http://localhost:5180` (commands above) and leave them running while the user tries changes; Vite reloads on save.
+3. Iterate on the user's feedback; `npm run build` must pass (also run pytest after server or CLI changes).
+4. When the user says it's done, commit, merge into `main` (no pull requests; the user doesn't use them) and delete the branch. Push and deploy only when asked (see Release and Deployment).
 
 ## Release
 

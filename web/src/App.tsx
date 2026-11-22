@@ -1,7 +1,8 @@
-import { Contrast, FolderPlus, Keyboard, Moon, Plus, Search, Sun, X } from "lucide-react";
+import { Archive, Contrast, FolderPlus, Keyboard, Moon, Plus, Search, Sun, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Activity } from "./Activity";
+import { Backlog } from "./Backlog";
 import { Actor, Project, STATUSES, Status, Task, api, relTime } from "./api";
 import { Board } from "./Board";
 import { CHIPS, Chip, EMPTY_FILTERS, Filters, isOverdue, matches } from "./filters";
@@ -10,11 +11,12 @@ import { Projects } from "./Projects";
 import { TaskModal, keyOf } from "./TaskModal";
 import { ConfirmDialog, Dialog, IconButton, Select, StatusDot } from "./ui";
 
-type View = "board" | "projects" | "activity";
+type View = "board" | "backlog" | "projects" | "activity";
 type Theme = "system" | "light" | "dark";
 
 const VIEWS: { id: View; label: string }[] = [
   { id: "board", label: "Board" },
+  { id: "backlog", label: "Backlog" },
   { id: "projects", label: "Projects" },
   { id: "activity", label: "Activity" },
 ];
@@ -28,7 +30,7 @@ const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
 const SHORTCUTS: [string, string][] = [
   ["/", "Search"],
   ["n", "New task"],
-  ["1 · 2 · 3", "Board · Projects · Activity"],
+  ["1 · 2 · 3 · 4", "Board · Backlog · Projects · Activity"],
   ["?", "Show shortcuts"],
   ["Esc", "Close a dialog or clear search"],
 ];
@@ -86,12 +88,17 @@ export function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<Theme>(() => load("rail.theme", load("ffloom.theme", "system")));
-  // Columns start collapsed when they're Done or empty, worked out again whenever the project changes.
-  const [collapsed, setCollapsed] = useState<Set<Status> | null>(null);
+  // Each project's columns collapse on their own (keyed "p<project id>", as the board's lanes are).
+  // A project's columns start collapsed when they're Done or empty, worked out the first time it's seen.
+  const [collapsed, setCollapsed] = useState<Map<string, Set<Status>>>(new Map());
   // { project } edits one, {} creates one
   const [projectDialog, setProjectDialog] = useState<{ project?: Project } | null>(null);
   const [deleting, setDeleting] = useState<Project | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  // The board leaves the backlog to its own tab unless this is switched on.
+  const [showBacklog, setShowBacklog] = useState<boolean>(() => load("rail.showBacklog", false));
+  // Project lanes folded on the board (by project id).
+  const [folded, setFolded] = useState<Set<number>>(() => new Set(load<number[]>("rail.lanes", [])));
   const searchRef = useRef<HTMLInputElement>(null);
   const tabsRef = useRef<HTMLElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
@@ -108,12 +115,14 @@ export function App() {
     }).catch(onError);
   }, [refreshKey]);
 
-  useEffect(() => setCollapsed(null), [filters.projectId]);
   useEffect(() => {
-    if (tasks && collapsed === null) {
-      setCollapsed(defaultCollapsed(tasks.filter((t) => !filters.projectId || t.project_id === filters.projectId)));
-    }
-  }, [tasks, collapsed]);
+    if (!tasks) return;
+    const missing = projects.filter((p) => !collapsed.has(`p${p.id}`));
+    if (!missing.length) return;
+    const next = new Map(collapsed);
+    for (const p of missing) next.set(`p${p.id}`, defaultCollapsed(tasks.filter((t) => t.project_id === p.id)));
+    setCollapsed(next);
+  }, [tasks, projects, collapsed]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -144,6 +153,8 @@ export function App() {
   };
 
   useEffect(() => save("rail.project", filters.projectId ?? null), [filters.projectId]);
+  useEffect(() => save("rail.showBacklog", showBacklog), [showBacklog]);
+  useEffect(() => save("rail.lanes", [...folded]), [folded]);
 
   // No live updates yet: pick up agents' changes when the tab comes back into focus.
   useEffect(() => {
@@ -161,7 +172,7 @@ export function App() {
       if (e.key === "/") { e.preventDefault(); searchRef.current?.focus(); }
       else if (e.key === "n" && projects.length) { e.preventDefault(); setOpen({ status: "todo" }); }
       else if (e.key === "?") setShowShortcuts(true);
-      else if (["1", "2", "3"].includes(e.key)) setView(VIEWS[Number(e.key) - 1].id);
+      else if (["1", "2", "3", "4"].includes(e.key)) setView(VIEWS[Number(e.key) - 1].id);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -178,12 +189,12 @@ export function App() {
     return [...seen.values()];
   }, [all]);
 
-  const toggleColumn = (s: Status) => {
-    const next = new Set(collapsed);
-    if (next.has(s)) next.delete(s);
-    else next.add(s);
-    setCollapsed(next);
-  };
+  const toggleColumn = (lane: string, s: Status) => setCollapsed((m) => {
+    const cols = new Set(m.get(lane));
+    if (cols.has(s)) cols.delete(s);
+    else cols.add(s);
+    return new Map(m).set(lane, cols);
+  });
 
   // A drag changes the card's column, its place in it, or both.
   const move = (task: Task, status: Status, positions: Record<number, number>) => {
@@ -200,6 +211,25 @@ export function App() {
       .then(refresh).catch((e) => { onError(e); refresh(); });
   };
 
+  // A quick change from the Backlog tab: shown at once, saved behind it.
+  const update = (task: Task, patch: Partial<Pick<Task, "status" | "priority" | "position">>) => {
+    const stamp = new Date().toISOString();
+    setTasks(all.map((t) => (t.id === task.id ? { ...t, ...patch, updated_at: stamp } : t)));
+    api.updateTask(task.id, patch).then(refresh).catch((e) => { onError(e); refresh(); });
+  };
+  const reorder = (positions: Record<number, number>) => {
+    setTasks(all.map((t) => (t.id in positions ? { ...t, position: positions[t.id] } : t)));
+    Promise.all(Object.entries(positions).map(([id, position]) => api.updateTask(Number(id), { position })))
+      .then(refresh).catch((e) => { onError(e); refresh(); });
+  };
+  const fold = (id: number) => setFolded((f) => {
+    const next = new Set(f);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const boardStatuses = STATUSES.filter((s) => showBacklog || s !== "backlog");
+
   const newProject = () => setProjectDialog({});
   const deleteProject = (p: Project) =>
     api.deleteProject(p.id).then(() => {
@@ -209,6 +239,9 @@ export function App() {
   const deletingCount = deleting ? all.filter((t) => t.project_id === deleting.id).length : 0;
 
   const chipsApply = view !== "activity";
+  const themeAt = THEMES.findIndex((t) => t.id === theme);
+  const themeNow = THEMES[themeAt];
+  const nextTheme = THEMES[(themeAt + 1) % THEMES.length];
   const anyFilter = !!filters.search || !!filters.projectId || (chipsApply && !!filters.chip);
   const count = (s: Status) => inProject.filter((t) => t.status === s).length;
   const overdue = inProject.filter(isOverdue).length;
@@ -234,14 +267,9 @@ export function App() {
             title={projects.length === 0 ? "Create a project first" : "New task (n)"}>
             <Plus size={15} strokeWidth={2.5} /><span>New task</span>
           </button>
-          <div className="theme-switch" role="radiogroup" aria-label="Theme">
-            {THEMES.map(({ id, label, icon: Icon }) => (
-              <button key={id} role="radio" aria-checked={theme === id} title={label} aria-label={label}
-                className={theme === id ? "active" : ""} onClick={() => changeTheme(id)}>
-                <Icon size={14} strokeWidth={2.25} />
-              </button>
-            ))}
-          </div>
+          <IconButton label={`Theme: ${themeNow.label} (click to change)`} onClick={() => changeTheme(nextTheme.id)}>
+            <themeNow.icon size={16} strokeWidth={2.25} />
+          </IconButton>
         </header>
 
         {projects.length > 0 && (
@@ -257,16 +285,20 @@ export function App() {
               <option value="">All projects</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </Select>
-            {chipsApply && CHIPS.map(({ id, label, icon: Icon, test }) => {
-              const on = filters.chip === id;
-              return (
-                <button key={id} type="button" className={`quick ${on ? "on" : ""}`} aria-pressed={on}
-                  onClick={() => setFilter("chip", on ? undefined : (id as Chip))}>
-                  <Icon size={14} strokeWidth={2.25} />{label}<span className="n">{inProject.filter(test).length}</span>
-                </button>
-              );
-            })}
+            {chipsApply && (
+              <Select value={filters.chip ?? ""} aria-label="Filter" className={filters.chip ? "set" : ""}
+                onChange={(e) => setFilter("chip", (e.target.value || undefined) as Chip | undefined)}>
+                <option value="">All tasks</option>
+                {CHIPS.map(({ id, label, test }) => <option key={id} value={id}>{label} ({inProject.filter(test).length})</option>)}
+              </Select>
+            )}
             {anyFilter && <button className="btn ghost" onClick={() => setFilters(EMPTY_FILTERS)}><X size={14} />Clear</button>}
+            {view === "board" && (
+              <button type="button" className={`quick backlog-toggle ${showBacklog ? "on" : ""}`} aria-pressed={showBacklog}
+                title={showBacklog ? "Hide the Backlog column" : "Show the Backlog column"} onClick={() => setShowBacklog(!showBacklog)}>
+                <Archive size={14} strokeWidth={2.25} />Show backlog<span className="n">{count("backlog")}</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -279,8 +311,16 @@ export function App() {
             </div>
           ) : view === "board" ? (
             <Board
-              tasks={shown} showProject={!filters.projectId} collapsed={collapsed ?? new Set()}
-              onToggle={toggleColumn} onOpen={setOpen} onMove={move} onAdd={(status) => setOpen({ status })}
+              tasks={shown} projects={projects} projectId={filters.projectId} statuses={boardStatuses} showProject={false}
+              collapsed={collapsed} folded={folded} backlogDrop={!showBacklog}
+              onToggle={toggleColumn} onFold={fold} onFocus={(id) => setFilter("projectId", id)}
+              onOpen={setOpen} onMove={move} onAdd={(status, projectId) => setOpen({ status, projectId })}
+            />
+          ) : view === "backlog" ? (
+            <Backlog
+              projects={projects} tasks={shown} filtered={!!filters.search || !!filters.chip} projectId={filters.projectId}
+              onOpenTask={setOpen} onAdd={(p) => setOpen({ status: "backlog", projectId: p.id })}
+              onUpdate={update} onReorder={reorder}
             />
           ) : view === "projects" ? (
             <Projects
